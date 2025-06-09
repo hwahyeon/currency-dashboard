@@ -1,0 +1,32 @@
+name: Render R Markdown report
+
+on:
+  workflow_run:
+    workflows: ["Scrape ECB Rates"]
+    types:
+      - completed
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+
+      - name: Install dependencies
+        run: |
+          Rscript -e 'install.packages(c("rmarkdown", "readr", "dplyr", "lubridate"))'
+
+      - name: Render report
+        run: |
+          Rscript R/render_report.R
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./report
