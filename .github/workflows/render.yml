@@ -12,21 +12,27 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up R
         uses: r-lib/actions/setup-r@v2
 
-      - name: Install dependencies
+      - name: Install Pandoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pandoc
+
+      - name: Install R packages
         run: |
           Rscript -e 'install.packages(c("rmarkdown", "readr", "dplyr", "lubridate"))'
 
-      - name: Render report
-        run: |
-          Rscript R/render_report.R
+      - name: Render RMarkdown to HTML
+        run: Rscript R/render_report.R
 
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./report
+      - name: Commit rendered HTML
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add report/index.html
+          git commit -m "ci: Render dashboard HTML from report.Rmd"
+          git push
