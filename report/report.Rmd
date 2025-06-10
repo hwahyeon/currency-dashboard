@@ -1,4 +1,43 @@
 ---
 title: "Currency Exchange Dashboard"
-output: html_document
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    code_folding: hide
+    theme: readable
 ---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+
+history <- read_csv("../data/history.csv") %>% drop_na()
+recent <- read_csv("../data/recent.csv")
+
+# Combine and preprocess
+exchange_data <- bind_rows(history, recent) %>%
+  mutate(date = ymd(date))
+```
+
+## Exchange Rates against the Euro {.tabset}
+
+```{r}
+common_currencies <- c("AUD", "CAD", "CHF", "CZK", "DKK", "GBP", "HKD",
+                       "HUF", "JPY", "KRW", "NOK", "NZD", "PLN", "SEK",
+                       "SGD", "USD", "ZAR")
+```
+
+```{r, results='asis', echo=FALSE, warning=FALSE, message=FALSE}
+for (cur in common_currencies) {
+  cat("### ", cur, "\n\n")
+  print(
+    ggplot(exchange_data %>% filter(currency == cur), aes(x = date, y = rate)) +
+      geom_line(color = "steelblue") +
+      labs(title = paste(cur, "Exchange Rate Over Time"), x = "Date", y = "Rate (Base: EUR)") +
+      theme_minimal()
+  )
+  cat("\n\n")
+}
+```
