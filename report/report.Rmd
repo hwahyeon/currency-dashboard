@@ -1,4 +1,444 @@
 ---
 title: "Currency Exchange Dashboard"
-output: html_document
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    code_folding: hide
+    theme: readable
 ---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(forecast)
+library(prophet)
+library(xgboost)
+library(zoo)
+library(lmtest)
+library(tibble)
+library(dplyr)
+library(igraph)
+library(ggraph)
+
+history <- read_csv("../data/history.csv") %>% drop_na()
+recent <- read_csv("../data/recent.csv")
+
+common_currencies <- c("USD", "KRW", "GBP", "JPY", "AUD", "CAD", "CHF")
+
+exchange_data <- bind_rows(history, recent) %>%
+  mutate(date = ymd(date)) %>%
+  arrange(date)
+
+log_returns <- exchange_data %>%
+  filter(currency %in% common_currencies) %>%
+  arrange(currency, date) %>%
+  group_by(currency) %>%
+  mutate(log_return = log(rate / lag(rate))) %>%
+  ungroup() %>%
+  select(date, currency, log_return) %>%
+  pivot_wider(names_from = currency, values_from = log_return)
+
+run_forecasts <- function(data, currency_code) {
+  df <- data %>% 
+    filter(currency == currency_code) %>%
+    arrange(date) %>%
+    mutate(
+      date_num = as.numeric(date),
+      weekday = wday(date),
+      month = month(date)
+    )
+
+  # Create lag features for XGBoost
+  for (i in 1:5) {
+    df[[paste0("lag_", i)]] <- lag(df$rate, i)
+  }
+  df <- df %>% drop_na()
+
+  # Train XGBoost model
+  xgb_matrix <- xgb.DMatrix(
+    data = as.matrix(df %>% select(starts_with("lag_"), date_num, weekday, month)),
+    label = df$rate
+  )
+  model_xgb <- xgboost(data = xgb_matrix, nrounds = 100, objective = "reg:squarederror", verbose = 0)
+
+  # Generate XGBoost forecasts
+  future_dates <- seq(max(df$date) + 1, by = "day", length.out = 7)
+  lags <- tail(df$rate, 5)
+  preds <- numeric(7)
+
+  for (i in 1:7) {
+    input <- tibble(
+      lag_1 = lags[5], lag_2 = lags[4], lag_3 = lags[3],
+      lag_4 = lags[2], lag_5 = lags[1],
+      date_num = as.numeric(future_dates[i]),
+      weekday = wday(future_dates[i]),
+      month = month(future_dates[i])
+    )
+    preds[i] <- predict(model_xgb, xgb.DMatrix(as.matrix(input)))
+    lags <- c(lags[-1], preds[i])
+  }
+
+  xgb_df <- tibble(date = future_dates, predicted = preds)
+
+  # ARIMA forecast
+  ts_data <- ts(df$rate)
+  arima_model <- auto.arima(ts_data)
+  arima_fc <- forecast(arima_model, h = 7)
+  arima_df <- tibble(date = future_dates, predicted = as.numeric(arima_fc$mean))
+
+  # Prophet forecast
+  prophet_df <- df %>% select(ds = date, y = rate)
+  model_prophet <- prophet(prophet_df)
+  future_df <- make_future_dataframe(model_prophet, periods = 7)
+  prophet_fc <- predict(model_prophet, future_df)
+  
+  # Extract only the last 7-day forecast
+  prophet_df_final <- prophet_fc %>%
+    filter(ds > max(df$date)) %>%
+    select(date = ds, predicted = yhat)
+  
+  return(list(
+    xgboost = xgb_df,
+    arima = arima_df,
+    prophet = prophet_df_final,
+    prophet_full = prophet_fc,
+    raw = df
+  ))
+}
+
+plot_visualization <- function(currency_code) {
+  raw_data <- results[[currency_code]]$raw %>%
+    arrange(date)
+
+  max_point <- raw_data %>% filter(rate == max(rate, na.rm = TRUE)) %>% dplyr::slice(1)
+  min_point <- raw_data %>% filter(rate == min(rate, na.rm = TRUE)) %>% dplyr::slice(1)
+
+  ggplot(raw_data, aes(x = date, y = rate)) +
+    geom_line(color = 'steelblue') +
+    geom_point(data = max_point, aes(x = date, y = rate), color = "red", size = 3) +
+    geom_point(data = min_point, aes(x = date, y = rate), color = "blue", size = 3) +
+    geom_text(data = max_point, aes(label = paste("Max:", round(rate, 2))), vjust = -1, hjust = 0.5, size = 3) +
+    geom_text(data = min_point, aes(label = paste("Min:", round(rate, 2))), vjust = 1.5, hjust = 0.5, size = 3) +
+    labs(title = paste("Exchange Rate for", currency_code),
+         x = "Date", y = "Rate")
+}
+
+plot_log_return <- function(currency_code) {
+  raw_data <- results[[currency_code]]$raw %>%
+    arrange(date) %>%
+    mutate(log_return = log(rate / lag(rate))) %>%
+    filter(!is.na(log_return))  # Remove NA values
+
+  ggplot(raw_data, aes(x = date, y = log_return)) +
+    geom_line(color = "darkred") +
+    labs(
+      title = paste("Log Return of", currency_code),
+      x = "Date",
+      y = "Log Return"
+    )
+}
+
+plot_xgboost_forecast <- function(currency_code, recent_months = 1) {
+  raw_data <- results[[currency_code]]$raw
+  pred_data <- results[[currency_code]]$xgb
+  ggplot() +
+    geom_line(data = raw_data %>% filter(date > max(date) - months(recent_months)),
+              aes(x = date, y = rate), color = "gray") +
+    geom_line(data = pred_data, aes(x = date, y = predicted), color = "green") +
+    labs(title = paste("XGBoost Forecast for", currency_code))
+}
+
+plot_arima_forecast <- function(currency_code, recent_days = 21) {
+  raw_data <- results[[currency_code]]$raw
+  pred_data <- results[[currency_code]]$arima
+  ggplot() +
+    geom_line(data = raw_data %>% filter(date > max(date) - days(recent_days)),
+              aes(x = date, y = rate), color = "gray") +
+    geom_line(data = pred_data, aes(x = date, y = predicted), color = "purple") +
+    labs(title = paste("ARIMA Forecast for", currency_code))
+}
+
+plot_recent_prophet <- function(forecast_df, history_df, days_before = 21) {
+  last_train_date <- max(history_df$date)
+
+  # match time zone
+  tzone <- attr(forecast_df$ds, "tzone")
+  last_train_date <- as.POSIXct(last_train_date, tz = tzone)
+
+  start_plot <- last_train_date - days(days_before)
+
+  forecast_df %>%
+    filter(ds >= start_plot) %>%
+    ggplot(aes(x = ds, y = yhat)) +
+    geom_ribbon(aes(ymin = yhat_lower, ymax = yhat_upper), fill = "lightblue", alpha = 0.3) +
+    geom_line(color = "blue") +
+    labs(title = "Prophet Forecast (Recent)", x = "Date", y = "Rate")
+}
+
+run_granger_analysis <- function(log_returns, currencies, max_lag = 3) {
+  results <- expand.grid(from = currencies, to = currencies) %>%
+    filter(from != to) %>%
+    rowwise() %>%
+    mutate(
+      p_value = tryCatch({
+        grangertest(log_returns[[to]] ~ log_returns[[from]], order = max_lag)$`Pr(>F)`[2]
+      }, error = function(e) NA_real_)
+    ) %>%
+    ungroup() %>%
+    arrange(p_value)
+
+  return(results)
+}
+
+plot_granger_heatmap <- function(granger_results, currencies) {
+  library(ggplot2)
+  
+  # Convert to matrix format for heatmap
+  heatmap_data <- granger_results %>%
+    complete(from = currencies, to = currencies, fill = list(p_value = NA)) %>%
+    pivot_wider(names_from = to, values_from = p_value) %>%
+    column_to_rownames("from") %>%
+    as.matrix()
+  
+  # Reshape for ggplot
+  heatmap_df <- as.data.frame(as.table(heatmap_data))
+  colnames(heatmap_df) <- c("From", "To", "P_value")
+  
+  ggplot(heatmap_df, aes(x = To, y = From, fill = P_value)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "red", high = "white", na.value = "grey90") +
+    labs(
+      title = "Granger Causality P-Value Heatmap",
+      x = "To (Dependent Variable)",
+      y = "From (Independent Variable)",
+      fill = "p-value"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+plot_granger_network <- function(granger_results, alpha = 0.05) {
+  # Filter significant causal relationships
+  filtered <- granger_results %>% filter(!is.na(p_value), p_value < alpha)
+
+  # Create directed graph
+  g <- graph_from_data_frame(filtered, directed = TRUE)
+
+  # Visualize graph
+  ggraph(g, layout = "fr") +
+    geom_edge_link(aes(label = round(p_value, 3)),
+                   arrow = arrow(length = unit(3, 'mm')),
+                   end_cap = circle(3, 'mm'),
+                   label_size = 2, edge_width = 0.8) +
+    geom_node_point(size = 5, color = "steelblue") +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    labs(title = "Granger Causality Network (p < 0.05)") +
+    theme_void()
+}
+
+summarize_granger_influence <- function(granger_results, alpha = 0.05) {
+  granger_results %>%
+    filter(p_value < alpha) %>%
+    group_by(from) %>%
+    summarise(Influences_Others = n(), .groups = "drop") %>%
+    full_join(
+      granger_results %>%
+        filter(p_value < alpha) %>%
+        group_by(to) %>%
+        summarise(Influenced_By_Others = n(), .groups = "drop"),
+      by = c("from" = "to")
+    ) %>%
+    rename(Currency = from) %>%
+    replace_na(list(Influences_Others = 0, Influenced_By_Others = 0)) %>%
+    arrange(desc(Influences_Others))
+}
+
+results <- list()
+for (cur in common_currencies) {
+  results[[cur]] <- run_forecasts(exchange_data, cur)
+}
+```
+
+# Forecast Dashboard {.tabset}
+
+## USD {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("USD")
+plot_log_return("USD")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("USD")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$USD$prophet_full, results$USD$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("USD")
+```
+
+## KRW {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("KRW")
+plot_log_return("KRW")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("KRW")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$KRW$prophet_full, results$KRW$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("KRW")
+```
+
+## GBP {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("GBP")
+plot_log_return("GBP")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("GBP")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$GBP$prophet_full, results$GBP$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("GBP")
+```
+
+## JPY {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("JPY")
+plot_log_return("JPY")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("JPY")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$JPY$prophet_full, results$JPY$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("JPY")
+```
+
+## AUD {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("AUD")
+plot_log_return("AUD")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("AUD")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$AUD$prophet_full, results$AUD$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("AUD")
+```
+
+## CAD {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("CAD")
+plot_log_return("CAD")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("CAD")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$CAD$prophet_full, results$CAD$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("CAD")
+```
+
+## CHF {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("CHF")
+plot_log_return("CHF")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("CHF")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$CHF$prophet_full, results$CHF$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("CHF")
+```
+
+
+# Granger Causality Analysis {.tabset}
+```{r}
+# Run Granger causality analysis after computing log returns
+granger_results <- run_granger_analysis(log_returns, common_currencies, max_lag = 3)
+
+# Display only statistically significant results
+granger_results %>% filter(p_value < 0.05)
+
+# Plot p-value heatmap
+plot_granger_heatmap(granger_results, common_currencies)
+
+plot_granger_network(granger_results)
+
+influence_summary <- summarize_granger_influence(granger_results)
+print(influence_summary)
+```
+
