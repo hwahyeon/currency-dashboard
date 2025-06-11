@@ -10,15 +10,19 @@ output:
 ---
 
 ```{r setup, include=FALSE}
-library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(readr)
+library(stringr)
+library(tibble)
+library(forcats)
 library(lubridate)
 library(forecast)
 library(prophet)
 library(xgboost)
 library(zoo)
 library(lmtest)
-library(tibble)
-library(dplyr)
 library(igraph)
 library(ggraph)
 
