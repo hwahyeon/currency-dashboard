@@ -5,6 +5,7 @@ on:
     workflows: ["Scrape ECB Rates"]
     types:
       - completed
+  workflow_dispatch:
 
 jobs:
   render:
