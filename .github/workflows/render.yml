@@ -30,13 +30,13 @@ jobs:
             "tidyverse",
             "lubridate",
             "forecast",
-            "prophet",
             "xgboost",
             "zoo",
             "lmtest",
             "igraph",
             "ggraph"
-          ))'
+          ), repos = "https://cloud.r-project.org")'
+          Rscript -e 'try(install.packages("prophet", repos = "https://cloud.r-project.org"))'
 
       - name: Render RMarkdown to HTML
         run: Rscript R/render_report.R
