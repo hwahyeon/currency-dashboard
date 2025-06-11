@@ -24,7 +24,18 @@ jobs:
 
       - name: Install R packages
         run: |
-          Rscript -e 'install.packages(c("rmarkdown", "readr", "dplyr", "lubridate"))'
+          Rscript -e 'install.packages(c(
+            "rmarkdown",
+            "tidyverse",
+            "lubridate",
+            "forecast",
+            "prophet",
+            "xgboost",
+            "zoo",
+            "lmtest",
+            "igraph",
+            "ggraph"
+          ))'
 
       - name: Render RMarkdown to HTML
         run: Rscript R/render_report.R
