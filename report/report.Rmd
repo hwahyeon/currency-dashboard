@@ -87,6 +87,17 @@ plot_visualization <- function(currency_code) {
     labs(title = paste('Exchange Rate Over Time for', currency_code))
 }
 
+plot_log_return <- function(currency_code) {
+  raw_data <- results[[currency_code]]$raw %>%
+    arrange(date) %>%
+    mutate(log_return = log(rate / lag(rate))) %>%
+    filter(!is.na(log_return))  # NA 제거
+
+  ggplot(raw_data, aes(x = date, y = log_return)) +
+    geom_line(color = "darkred") +
+    labs(title = paste("Log Return of", currency_code), x = "Date", y = "Log Return")
+}
+
 plot_xgboost_forecast <- function(currency_code, recent_months = 1) {
   raw_data <- results[[currency_code]]$raw
   pred_data <- results[[currency_code]]$xgb
@@ -139,6 +150,7 @@ for (cur in common_currencies) {
 ### Visualization
 ```{r}
 plot_visualization("USD")
+plot_log_return("USD")
 ```
 
 ### XGBoost
@@ -161,6 +173,7 @@ plot_recent_prophet(results$USD$prophet$forecast, results$USD$raw)
 ### Visualization
 ```{r}
 plot_visualization("KRW")
+plot_log_return("KRW")
 ```
 
 ### XGBoost
