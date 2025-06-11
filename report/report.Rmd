@@ -15,6 +15,7 @@ library(lubridate)
 library(forecast)
 library(prophet)
 library(xgboost)
+library(zoo)
 
 history <- read_csv("../data/history.csv") %>% drop_na()
 recent <- read_csv("../data/recent.csv")
@@ -79,70 +80,100 @@ run_forecasts <- function(data, currency_code) {
   ))
 }
 
+plot_visualization <- function(currency_code) {
+  raw_data <- results[[currency_code]]$raw
+  ggplot(raw_data, aes(x = date, y = rate)) +
+    geom_line(color = 'steelblue') +
+    labs(title = paste('Exchange Rate Over Time for', currency_code))
+}
+
+plot_xgboost_forecast <- function(currency_code, recent_months = 1) {
+  raw_data <- results[[currency_code]]$raw
+  pred_data <- results[[currency_code]]$xgb
+  ggplot() +
+    geom_line(data = raw_data %>% filter(date > max(date) - months(recent_months)),
+              aes(x = date, y = rate), color = "gray") +
+    geom_line(data = pred_data, aes(x = date, y = predicted), color = "green") +
+    labs(title = paste("XGBoost Forecast for", currency_code))
+}
+
+plot_arima_forecast <- function(currency_code, recent_days = 7) {
+  raw_data <- results[[currency_code]]$raw
+  pred_data <- results[[currency_code]]$arima
+  ggplot() +
+    geom_line(data = raw_data %>% filter(date > max(date) - days(recent_days)),
+              aes(x = date, y = rate), color = "gray") +
+    geom_line(data = pred_data, aes(x = date, y = predicted), color = "purple") +
+    labs(title = paste("ARIMA Forecast for", currency_code))
+}
+
+plot_recent_prophet <- function(forecast_df, history_df, days_before = 21) {
+  last_train_date <- max(history_df$date)
+
+  # match time zone
+  tzone <- attr(forecast_df$ds, "tzone")
+  last_train_date <- as.POSIXct(last_train_date, tz = tzone)
+
+  start_plot <- last_train_date - days(days_before)
+
+  forecast_df %>%
+    filter(ds >= start_plot) %>%
+    ggplot(aes(x = ds, y = yhat)) +
+    geom_ribbon(aes(ymin = yhat_lower, ymax = yhat_upper), fill = "lightblue", alpha = 0.3) +
+    geom_line(color = "blue") +
+    labs(title = "Prophet Forecast (Recent)", x = "Date", y = "Rate")
+}
+
+
+
 results <- list()
 for (cur in common_currencies) {
   results[[cur]] <- run_forecasts(exchange_data, cur)
 }
 ```
 
-# Dashboard {.tabset}
+# Forecast Dashboard {.tabset}
 
 ## USD {.tabset}
 
 ### Visualization
 ```{r}
-ggplot(results$USD$raw, aes(x = date, y = rate)) +
-  geom_line(color = 'steelblue') +
-  labs(title = 'Exchange Rate Over Time')
+plot_visualization("USD")
 ```
 
 ### XGBoost
 ```{r}
-ggplot() +
-  geom_line(data = results$USD$raw %>% filter(date > max(date) - months(1)), aes(x = date, y = rate), color = "gray") +
-  geom_line(data = results$USD$xgb, aes(x = date, y = predicted), color = "green") +
-  labs(title = "XGBoost Forecast")
+plot_xgboost_forecast("USD")
 ```
 
 ### ARIMA
 ```{r}
-ggplot() +
-  geom_line(data = results$USD$raw %>% filter(date > max(date) - days(7)), aes(x = date, y = rate), color = "gray") +
-  geom_line(data = results$USD$arima, aes(x = date, y = predicted), color = "purple") +
-  labs(title = "ARIMA Forecast")
+plot_arima_forecast("USD")
 ```
 
 ### Prophet
 ```{r}
-plot(results$USD$prophet$model, results$USD$prophet$forecast)
+plot_recent_prophet(results$USD$prophet$forecast, results$USD$raw)
 ```
 
 ## KRW {.tabset}
 
 ### Visualization
 ```{r}
-ggplot(results$KRW$raw, aes(x = date, y = rate)) +
-  geom_line(color = 'steelblue') +
-  labs(title = 'Exchange Rate Over Time')
+plot_visualization("KRW")
 ```
 
 ### XGBoost
 ```{r}
-ggplot() +
-  geom_line(data = results$KRW$raw %>% filter(date > max(date) - months(1)), aes(x = date, y = rate), color = "gray") +
-  geom_line(data = results$KRW$xgb, aes(x = date, y = predicted), color = "green") +
-  labs(title = "XGBoost Forecast")
+plot_xgboost_forecast("KRW")
 ```
 
 ### ARIMA
 ```{r}
-ggplot() +
-  geom_line(data = results$KRW$raw %>% filter(date > max(date) - days(7)), aes(x = date, y = rate), color = "gray") +
-  geom_line(data = results$KRW$arima, aes(x = date, y = predicted), color = "purple") +
-  labs(title = "ARIMA Forecast")
+plot_arima_forecast("KRW")
 ```
 
 ### Prophet
 ```{r}
-plot(results$KRW$prophet$model, results$KRW$prophet$forecast)
+plot_recent_prophet(results$KRW$prophet$forecast, results$KRW$raw)
 ```
