@@ -238,6 +238,22 @@ plot_granger_network <- function(granger_results, alpha = 0.05) {
     theme_void()
 }
 
+summarize_granger_influence <- function(granger_results, alpha = 0.05) {
+  granger_results %>%
+    filter(p_value < alpha) %>%
+    group_by(from) %>%
+    summarise(Influences_Others = n(), .groups = "drop") %>%
+    full_join(
+      granger_results %>%
+        filter(p_value < alpha) %>%
+        group_by(to) %>%
+        summarise(Influenced_By_Others = n(), .groups = "drop"),
+      by = c("from" = "to")
+    ) %>%
+    rename(Currency = from) %>%
+    replace_na(list(Influences_Others = 0, Influenced_By_Others = 0)) %>%
+    arrange(desc(Influences_Others))
+}
 
 results <- list()
 for (cur in common_currencies) {
@@ -283,5 +299,8 @@ granger_results %>% filter(p_value < 0.05)
 plot_granger_heatmap(granger_results, common_currencies)
 
 plot_granger_network(granger_results)
+
+influence_summary <- summarize_granger_influence(granger_results)
+print(influence_summary)
 ```
 
