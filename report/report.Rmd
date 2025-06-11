@@ -12,49 +12,137 @@ output:
 ```{r setup, include=FALSE}
 library(tidyverse)
 library(lubridate)
+library(forecast)
+library(prophet)
+library(xgboost)
 
 history <- read_csv("../data/history.csv") %>% drop_na()
 recent <- read_csv("../data/recent.csv")
 
-# Combine and preprocess
 exchange_data <- bind_rows(history, recent) %>%
-  mutate(date = ymd(date))
+  mutate(date = ymd(date)) %>%
+  arrange(date)
 
-common_currencies <- c("AUD", "CAD", "CHF", "CZK", "DKK", "GBP", "HKD",
-                       "HUF", "JPY", "KRW", "NOK", "NZD", "PLN", "SEK",
-                       "SGD", "USD", "ZAR")
+common_currencies <- c("USD", "KRW")
 
-# Log returns
-exchange_returns <- exchange_data %>%
-  filter(currency %in% common_currencies) %>%
-  group_by(currency) %>%
-  arrange(date) %>%
-  mutate(log_return = log(rate) - lag(log(rate))) %>%
-  ungroup()
+run_forecasts <- function(data, currency_code) {
+  df <- data %>% filter(currency == currency_code) %>%
+    arrange(date) %>%
+    mutate(date_num = as.numeric(date),
+           weekday = wday(date),
+           month = month(date))
+
+  for (i in 1:5) {
+    df[[paste0("lag_", i)]] <- lag(df$rate, i)
+  }
+  df <- df %>% drop_na()
+
+  xgb_matrix <- xgb.DMatrix(
+    data = as.matrix(df %>% select(starts_with("lag_"), date_num, weekday, month)),
+    label = df$rate
+  )
+  model_xgb <- xgboost(data = xgb_matrix, nrounds = 100, objective = "reg:squarederror", verbose = 0)
+
+  future_dates <- seq(max(df$date) + 1, by = "day", length.out = 7)
+  lags <- tail(df$rate, 5)
+  preds <- numeric(7)
+
+  for (i in 1:7) {
+    input <- tibble(
+      lag_1 = lags[5], lag_2 = lags[4], lag_3 = lags[3],
+      lag_4 = lags[2], lag_5 = lags[1],
+      date_num = as.numeric(future_dates[i]),
+      weekday = wday(future_dates[i]),
+      month = month(future_dates[i])
+    )
+    preds[i] <- predict(model_xgb, xgb.DMatrix(as.matrix(input)))
+    lags <- c(lags[-1], preds[i])
+  }
+
+  xgb_df <- tibble(date = future_dates, predicted = preds)
+
+  ts_data <- ts(df$rate)
+  arima_model <- auto.arima(ts_data)
+  arima_fc <- forecast(arima_model, h = 7)
+  arima_df <- tibble(date = future_dates, predicted = as.numeric(arima_fc$mean))
+
+  prophet_df <- df %>% select(ds = date, y = rate)
+  model_prophet <- prophet(prophet_df)
+  future_df <- make_future_dataframe(model_prophet, periods = 7)
+  prophet_fc <- predict(model_prophet, future_df)
+
+  return(list(
+    xgb = xgb_df,
+    arima = arima_df,
+    prophet = list(model = model_prophet, forecast = prophet_fc),
+    raw = df
+  ))
+}
+
+results <- list()
+for (cur in common_currencies) {
+  results[[cur]] <- run_forecasts(exchange_data, cur)
+}
 ```
 
-## Exchange Rate Time Series (EUR as Base Currency) {.tabset}
+# Dashboard {.tabset}
 
-```{r, results='asis', echo=FALSE, warning=FALSE, message=FALSE}
-for (cur in common_currencies) {
-  cat("### ", cur, "\n\n")
+## USD {.tabset}
 
-  cat("#### Exchange Rate\n\n")
-  print(
-    ggplot(exchange_data %>% filter(currency == cur), aes(x = date, y = rate)) +
-      geom_line(color = "steelblue") +
-      labs(title = paste(cur, "Exchange Rate Over Time"), x = "Date", y = "Rate (Base: EUR)") +
-      theme_minimal()
-  )
+### Visualization
+```{r}
+ggplot(results$USD$raw, aes(x = date, y = rate)) +
+  geom_line(color = 'steelblue') +
+  labs(title = 'Exchange Rate Over Time')
+```
 
-  cat("\n\n#### Log Returns\n\n")
-  print(
-    ggplot(exchange_returns %>% filter(currency == cur), aes(x = date, y = log_return)) +
-      geom_line(color = "tomato") +
-      labs(title = paste(cur, "Daily Log Returns"), x = "Date", y = "Log Return") +
-      theme_minimal()
-  )
+### XGBoost
+```{r}
+ggplot() +
+  geom_line(data = results$USD$raw %>% filter(date > max(date) - months(1)), aes(x = date, y = rate), color = "gray") +
+  geom_line(data = results$USD$xgb, aes(x = date, y = predicted), color = "green") +
+  labs(title = "XGBoost Forecast")
+```
 
-  cat("\n\n")
-}
+### ARIMA
+```{r}
+ggplot() +
+  geom_line(data = results$USD$raw %>% filter(date > max(date) - days(7)), aes(x = date, y = rate), color = "gray") +
+  geom_line(data = results$USD$arima, aes(x = date, y = predicted), color = "purple") +
+  labs(title = "ARIMA Forecast")
+```
+
+### Prophet
+```{r}
+plot(results$USD$prophet$model, results$USD$prophet$forecast)
+```
+
+## KRW {.tabset}
+
+### Visualization
+```{r}
+ggplot(results$KRW$raw, aes(x = date, y = rate)) +
+  geom_line(color = 'steelblue') +
+  labs(title = 'Exchange Rate Over Time')
+```
+
+### XGBoost
+```{r}
+ggplot() +
+  geom_line(data = results$KRW$raw %>% filter(date > max(date) - months(1)), aes(x = date, y = rate), color = "gray") +
+  geom_line(data = results$KRW$xgb, aes(x = date, y = predicted), color = "green") +
+  labs(title = "XGBoost Forecast")
+```
+
+### ARIMA
+```{r}
+ggplot() +
+  geom_line(data = results$KRW$raw %>% filter(date > max(date) - days(7)), aes(x = date, y = rate), color = "gray") +
+  geom_line(data = results$KRW$arima, aes(x = date, y = predicted), color = "purple") +
+  labs(title = "ARIMA Forecast")
+```
+
+### Prophet
+```{r}
+plot(results$KRW$prophet$model, results$KRW$prophet$forecast)
 ```
