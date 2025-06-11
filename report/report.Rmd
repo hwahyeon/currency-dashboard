@@ -19,6 +19,8 @@ library(zoo)
 library(lmtest)
 library(tibble)
 library(dplyr)
+library(igraph)
+library(ggraph)
 
 history <- read_csv("../data/history.csv") %>% drop_na()
 recent <- read_csv("../data/recent.csv")
@@ -217,6 +219,25 @@ plot_granger_heatmap <- function(granger_results, currencies) {
     theme(axis.text.x = element_text(angle = 45, hjust = 1))
 }
 
+plot_granger_network <- function(granger_results, alpha = 0.05) {
+  # Filter significant causal relationships
+  filtered <- granger_results %>% filter(!is.na(p_value), p_value < alpha)
+
+  # Create directed graph
+  g <- graph_from_data_frame(filtered, directed = TRUE)
+
+  # Visualize graph
+  ggraph(g, layout = "fr") +
+    geom_edge_link(aes(label = round(p_value, 3)),
+                   arrow = arrow(length = unit(3, 'mm')),
+                   end_cap = circle(3, 'mm'),
+                   label_size = 2, edge_width = 0.8) +
+    geom_node_point(size = 5, color = "steelblue") +
+    geom_node_text(aes(label = name), repel = TRUE) +
+    labs(title = "Granger Causality Network (p < 0.05)") +
+    theme_void()
+}
+
 
 results <- list()
 for (cur in common_currencies) {
@@ -260,5 +281,7 @@ granger_results %>% filter(p_value < 0.05)
 
 # Plot p-value heatmap
 plot_granger_heatmap(granger_results, common_currencies)
+
+plot_granger_network(granger_results)
 ```
 
