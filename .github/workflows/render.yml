@@ -22,6 +22,7 @@ jobs:
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set up R
         if: steps.data_check.outputs.skip == 'false'
