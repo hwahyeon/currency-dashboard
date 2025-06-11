@@ -81,11 +81,22 @@ run_forecasts <- function(data, currency_code) {
 }
 
 plot_visualization <- function(currency_code) {
-  raw_data <- results[[currency_code]]$raw
+  raw_data <- results[[currency_code]]$raw %>%
+    arrange(date)
+
+  max_point <- raw_data %>% filter(rate == max(rate, na.rm = TRUE)) %>% dplyr::slice(1)
+  min_point <- raw_data %>% filter(rate == min(rate, na.rm = TRUE)) %>% dplyr::slice(1)
+
   ggplot(raw_data, aes(x = date, y = rate)) +
     geom_line(color = 'steelblue') +
-    labs(title = paste('Exchange Rate Over Time for', currency_code))
+    geom_point(data = max_point, aes(x = date, y = rate), color = "red", size = 3) +
+    geom_point(data = min_point, aes(x = date, y = rate), color = "blue", size = 3) +
+    geom_text(data = max_point, aes(label = paste("Max:", round(rate, 2))), vjust = -1, hjust = 0.5, size = 3) +
+    geom_text(data = min_point, aes(label = paste("Min:", round(rate, 2))), vjust = 1.5, hjust = 0.5, size = 3) +
+    labs(title = paste("Exchange Rate for", currency_code),
+         x = "Date", y = "Rate")
 }
+
 
 plot_log_return <- function(currency_code) {
   raw_data <- results[[currency_code]]$raw %>%
@@ -168,25 +179,3 @@ plot_arima_forecast("USD")
 plot_recent_prophet(results$USD$prophet$forecast, results$USD$raw)
 ```
 
-## KRW {.tabset}
-
-### Visualization
-```{r}
-plot_visualization("KRW")
-plot_log_return("KRW")
-```
-
-### XGBoost
-```{r}
-plot_xgboost_forecast("KRW")
-```
-
-### ARIMA
-```{r}
-plot_arima_forecast("KRW")
-```
-
-### Prophet
-```{r}
-plot_recent_prophet(results$KRW$prophet$forecast, results$KRW$raw)
-```
