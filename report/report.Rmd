@@ -286,6 +286,144 @@ plot_recent_prophet(results$USD$prophet_full, results$USD$raw)
 plot_xgboost_forecast("USD")
 ```
 
+## KRW {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("KRW")
+plot_log_return("KRW")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("KRW")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$KRW$prophet_full, results$KRW$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("KRW")
+```
+
+## GBP {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("GBP")
+plot_log_return("GBP")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("GBP")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$GBP$prophet_full, results$GBP$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("GBP")
+```
+
+## JPY {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("JPY")
+plot_log_return("JPY")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("JPY")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$JPY$prophet_full, results$JPY$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("JPY")
+```
+
+## AUD {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("AUD")
+plot_log_return("AUD")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("AUD")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$AUD$prophet_full, results$AUD$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("AUD")
+```
+
+## CAD {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("CAD")
+plot_log_return("CAD")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("CAD")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$CAD$prophet_full, results$CAD$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("CAD")
+```
+
+## CHF {.tabset}
+
+### Visualization
+```{r}
+plot_visualization("CHF")
+plot_log_return("CHF")
+```
+
+### ARIMA
+```{r}
+plot_arima_forecast("CHF")
+```
+
+### Prophet
+```{r}
+plot_recent_prophet(results$CHF$prophet_full, results$CHF$raw)
+```
+
+### XGBoost
+```{r}
+plot_xgboost_forecast("CHF")
+```
+
 
 # Granger Causality Analysis {.tabset}
 ```{r}
