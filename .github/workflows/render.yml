@@ -1,35 +1,26 @@
 name: Render R Markdown report
 
 on:
-  workflow_run:
-    workflows: ["Scrape ECB Rates"]
-    types:
-      - completed
+  push:
+    paths:
+      - data/recent.csv
   workflow_dispatch:
 
 jobs:
   render:
     runs-on: ubuntu-latest
 
+    env:
+      R_LIBS_USER: ~/.local/share/R/library
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check for data changes
-        id: data_check
-        run: |
-          if git diff --quiet origin/main -- data/history.csv data/recent.csv; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Set up R
-        if: steps.data_check.outputs.skip == 'false'
         uses: r-lib/actions/setup-r@v2
 
       - name: Install system dependencies
-        if: steps.data_check.outputs.skip == 'false'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -52,7 +43,6 @@ jobs:
             libudunits2-dev
 
       - name: Restore R package cache
-        if: steps.data_check.outputs.skip == 'false'
         uses: actions/cache@v3
         with:
           path: ${{ env.R_LIBS_USER }}
@@ -60,7 +50,6 @@ jobs:
           restore-keys: r-packages-${{ runner.os }}-
 
       - name: Install R packages
-        if: steps.data_check.outputs.skip == 'false'
         run: |
           Rscript -e 'install.packages(c(
             "rmarkdown", "ggplot2", "dplyr", "tidyr", "readr", "stringr", "tibble", "forcats",
@@ -72,14 +61,16 @@ jobs:
           Rscript -e 'try(install.packages("prophet", repos = "https://cloud.r-project.org"))'
 
       - name: Render RMarkdown to HTML
-        if: steps.data_check.outputs.skip == 'false'
         run: Rscript R/render_report.R
 
       - name: Commit rendered HTML
-        if: steps.data_check.outputs.skip == 'false'
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add report/index.html
-          git diff --cached --quiet || git commit -m "ci: Render dashboard HTML from report.Rmd"
-          git push
+          if ! git diff --cached --quiet; then
+            git commit -m "ci: Render dashboard HTML from report.Rmd"
+            git push
+          else
+            echo "No changes to commit"
+          fi
