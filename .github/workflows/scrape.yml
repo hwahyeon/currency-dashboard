@@ -1,8 +1,8 @@
 name: Scrape ECB Rates
 
 on:
-  schedule:
-    - cron: '0 15 * * *'   # Every day at 15:00 UTC (after ECB data is published)
+  # schedule:
+  #   - cron: '0 15 * * *'   # Every day at 15:00 UTC (after ECB data is published) — disabled for now
   workflow_dispatch:       # Allow manual triggering
 
 jobs:
